@@ -456,8 +456,84 @@ bool topWb( const TClonesArray *truthParticles,
   return false;
                 
 }
+#define MW 80
+#define sigmaW2 9
+#define sigmaT2 64
+double Chi2Minimizer(const vector<Jet*>& jetList, vector<int>& chi2barcode, TLorentzVector& t1P4_best, TLorentzVector& W1P4_best, TLorentzVector& t2P4_best,TLorentzVector& W2P4_best){
+    int Njet= jetList.size();
+    vector<int> ljetList, bjetList;
+    for(int i=0;i<Njet;i++){
+        if(jetList[i]->BTag)
+            bjetList.push_back(i);
+        else
+            ljetList.push_back(i);
 
+    }
+    int b1_best=-1, b2_best=-1, q1_best=-1, q2_best=-1, q3_best=-1, q4_best=-1;
 
+    double minChi2=-1, tmpChi2=-1;
+
+    for(int q1=0;q1 < ljetList.size();q1++){
+        for(int q2=q1+1;q2 < ljetList.size();q2++){
+            Jet* q1jet = jetList[ljetList[q1]];
+            Jet* q2jet = jetList[ljetList[q2]];
+            TLorentzVector W1P4 = q1jet->P4()+q2jet->P4();
+
+            for(int q3=0;q3 < ljetList.size();q3++){
+                if(q3==q1 || q3==q2) continue;
+                for(int q4=q3+1;q4 < ljetList.size();q4++){
+                      if(q4==q1 || q4==q2) continue;
+
+                      Jet* q3jet = jetList[ljetList[q3]];
+                      Jet* q4jet = jetList[ljetList[q4]];
+                      TLorentzVector W2P4 = q3jet->P4()+q4jet->P4();
+
+                      for(int b1=0;b1< bjetList.size();b1++){
+                         Jet* b1jet = jetList[bjetList[b1]];
+                         TLorentzVector t1P4 = b1jet->P4()+W1P4;
+
+                         for(int b2=0;b2< bjetList.size();b2++){
+                            if(b1==b2) continue;
+
+                            Jet* b2jet = jetList[bjetList[b2]];
+                            TLorentzVector t2P4 = b2jet->P4()+W2P4;
+
+                            tmpChi2 = pow(W1P4.M()-MW,2)/sigmaW2;
+                            tmpChi2+= pow(W2P4.M(),2)/sigmaW2;
+                            tmpChi2+= pow(t1P4.M()-t2P4.M(),2)/sigmaT2;
+                            
+                            if(minChi2<0 || tmpChi2 < minChi2){
+                                minChi2=tmpChi2;
+                                b1_best = bjetList[b1];
+                                b2_best = bjetList[b2];
+                                q1_best = ljetList[q1];
+                                q2_best = ljetList[q2];
+                                q3_best = ljetList[q3];
+                                q4_best = ljetList[q4];
+                                t1P4_best= t1P4;
+                                t2P4_best= t2P4;
+                                W1P4_best= W1P4;
+                                W2P4_best= W2P4;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for(int i=0;i<Njet;i++)
+      chi2barcode.push_back(-1);
+    
+    chi2barcode[b1_best]=17;
+    chi2barcode[q1_best]=20;
+    chi2barcode[q2_best]=20;
+
+    chi2barcode[b2_best]=34;
+    chi2barcode[q3_best]=40;
+    chi2barcode[q4_best]=40;
+
+    return minChi2; 
+}
 
 //------------------------------------------------------------------------------
 
@@ -905,7 +981,15 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
               cout << i<<" "<< jetList[i]->P4().Pt() <<" "<< jetList[i]->P4().Eta()<< " "<< jetList[i]->P4().Phi() <<" "<< matchPartonIndex[i] << endl;
           }
       }
+     
+      vector<int>chi2barcode;
+      TLorentzVector chi2_t1P4, chi2_t2P4, chi2_W1P4, chi2_W2P4;
+      double chi2_val = Chi2Minimizer(jetList,chi2barcode, chi2_t1P4, chi2_t2P4, chi2_W1P4, chi2_W2P4);
       
+      cout << chi2_val <<" "<< chi2_t1P4.M()<<endl;
+      for(int i=0;i< chi2barcode.size(); i++)
+        cout <<" "<< chi2barcode[i]<<endl;
+
       //Fill output tree
       for(int i=0;i<partonList.size();i++){
           GenParticle* particle = (GenParticle*) partonList[i];
