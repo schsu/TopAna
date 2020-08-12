@@ -456,10 +456,10 @@ bool topWb( const TClonesArray *truthParticles,
   return false;
                 
 }
-#define MW 80
-#define sigmaW2 9
-#define sigmaT2 64
-double Chi2Minimizer(const vector<Jet*>& jetList, vector<int>& chi2barcode, TLorentzVector& t1P4_best, TLorentzVector& W1P4_best, TLorentzVector& t2P4_best,TLorentzVector& W2P4_best){
+#define MW 80.9
+#define SigmaW2 197.4  //sigma=14.05
+#define TwoSigmaT2 1288.28 //sigma=25.38
+double Chi2Minimizer(const vector<Jet*>& jetList, vector<int>& chi2barcode, vector<int>& chi2_jet_index, TLorentzVector& t1P4_best, TLorentzVector& W1P4_best, TLorentzVector& t2P4_best,TLorentzVector& W2P4_best){
     int Njet= jetList.size();
     vector<int> ljetList, bjetList;
     for(int i=0;i<Njet;i++){
@@ -472,6 +472,8 @@ double Chi2Minimizer(const vector<Jet*>& jetList, vector<int>& chi2barcode, TLor
     int b1_best=-1, b2_best=-1, q1_best=-1, q2_best=-1, q3_best=-1, q4_best=-1;
 
     double minChi2=-1, tmpChi2=-1;
+
+cout <<"DEBUG  Chi2Minimizer " << bjetList.size()<<" "<< ljetList.size()<<endl;
 
     for(int q1=0;q1 < ljetList.size();q1++){
         for(int q2=q1+1;q2 < ljetList.size();q2++){
@@ -492,15 +494,17 @@ double Chi2Minimizer(const vector<Jet*>& jetList, vector<int>& chi2barcode, TLor
                          Jet* b1jet = jetList[bjetList[b1]];
                          TLorentzVector t1P4 = b1jet->P4()+W1P4;
 
-                         for(int b2=0;b2< bjetList.size();b2++){
+                         for(int b2=b1+1;b2< bjetList.size();b2++){
                             if(b1==b2) continue;
 
                             Jet* b2jet = jetList[bjetList[b2]];
                             TLorentzVector t2P4 = b2jet->P4()+W2P4;
 
-                            tmpChi2 = pow(W1P4.M()-MW,2)/sigmaW2;
-                            tmpChi2+= pow(W2P4.M(),2)/sigmaW2;
-                            tmpChi2+= pow(t1P4.M()-t2P4.M(),2)/sigmaT2;
+cout <<"comb "<< q1 <<" "<<q2 <<" "<<q3 <<" "<<q4 <<" "<<b1 <<" "<<b2 <<endl;
+
+                            tmpChi2 = pow(W1P4.M()-MW,2)/SigmaW2;
+                            tmpChi2+= pow(W2P4.M()-MW,2)/SigmaW2;
+                            tmpChi2+= pow(t1P4.M()-t2P4.M(),2)/TwoSigmaT2;
                             
                             if(minChi2<0 || tmpChi2 < minChi2){
                                 minChi2=tmpChi2;
@@ -531,6 +535,15 @@ double Chi2Minimizer(const vector<Jet*>& jetList, vector<int>& chi2barcode, TLor
     chi2barcode[b2_best]=34;
     chi2barcode[q3_best]=40;
     chi2barcode[q4_best]=40;
+
+
+    chi2_jet_index.push_back(b1_best);
+    chi2_jet_index.push_back(q1_best);
+    chi2_jet_index.push_back(q2_best);
+    chi2_jet_index.push_back(b2_best);
+    chi2_jet_index.push_back(q3_best);
+    chi2_jet_index.push_back(q4_best);
+
 
     return minChi2; 
 }
@@ -584,13 +597,25 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
     TFile *fout = new TFile(outputFile,"recreate");
     TTree *event =new TTree("event","Jet-parton assignment");
 
-    int NmatchTop;
-    event->Branch("NmatchTop", &NmatchTop);
+    int NmatchTop_truth;
+    event->Branch("NmatchTop_truth", &NmatchTop_truth);
+
+    int NmatchTop_chi2match;
+    double top1_mass_chi2match, w1_mass_chi2match, top2_mass_chi2match, w2_mass_chi2match;
+    event->Branch("NmatchTop_chi2match", &NmatchTop_chi2match);
+    event->Branch("top1_mass_chi2match",&top1_mass_chi2match);
+    event->Branch("w1_mass_chi2match"  ,&w1_mass_chi2match  );
+    event->Branch("top2_mass_chi2match",&top2_mass_chi2match);
+    event->Branch("w2_mass_chi2match"  ,&w2_mass_chi2match  );
+
+
+
     vector<double> jet_pt, jet_eta, jet_phi, jet_mass;
-    vector<int> jet_btag, jet_barcode, jet_parton_index;
+    vector<int> jet_btag, jet_barcode, jet_barcode_chi2match, jet_parton_index;
 
     event->Branch("jet_parton_index",&jet_parton_index);
     event->Branch("jet_barcode",&jet_barcode);
+    event->Branch("jet_barcode_chi2match", &jet_barcode_chi2match);
     event->Branch("jet_pt",&jet_pt);
     event->Branch("jet_eta",&jet_eta);
     event->Branch("jet_phi",&jet_phi);
@@ -623,9 +648,9 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
       treeReader->ReadEntry(entry);
 
       //Reset tree entries
-      NmatchTop=0;
+      NmatchTop_truth=0;
       jet_pt.clear(); jet_eta.clear(); jet_phi.clear(); jet_mass.clear();
-      jet_btag.clear(); jet_barcode.clear(); jet_parton_index.clear();
+      jet_btag.clear(); jet_barcode.clear(); jet_barcode_chi2match.clear(); jet_parton_index.clear();
       parton_pt.clear(); parton_eta.clear(); parton_phi.clear(); parton_mass.clear();
       parton_pdgid.clear(); parton_barcode.clear(); parton_jet_index.clear();
 
@@ -739,10 +764,15 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
       if(jet->PT>40) Njet40++;
       if(jet->PT>50) Njet50++;
       
-      //if(jet->BTag)
-      if(jet->Flavor==5)
-      	bjetList.push_back(jet);
-        
+      if(isGenJets){
+        if(jet->Flavor==5)
+      	  bjetList.push_back(jet);
+
+      }else{
+        if(jet->BTag)
+          bjetList.push_back(jet);
+
+      }  
       momentum.SetPxPyPzE(0.0, 0.0, 0.0, 0.0);
 
       // cout<<"Looping over jet constituents. Jet pt: "<<jet->PT<<", eta: "<<jet->Eta<<", phi: "<<jet->Phi<<endl;
@@ -786,7 +816,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
 
       if(jetList.size()<6) continue;
       CountNJets++;
-      if(bjetList.size()<2) continue;
+      if(bjetList.size()!=2) continue;
       CountNBJets++;
 
 
@@ -907,6 +937,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
 
       //Jet Barcode
       //b1 q1 q2 b2 q3 q4
+      //34 40 40 17 20 20
       int barcode[6]={0b100010, 0b101000, 0b101000, 0b010001, 0b010100, 0b010100};
       vector<int> matchBarcode (jNum, -1);
       for(int i=0;i<pNum;i++){
@@ -920,7 +951,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
       //
             
       if(matchJetIndex[0]>-1 && matchJetIndex[1]>-1 && matchJetIndex[2]>-1){
-          NmatchTop++;
+          NmatchTop_truth++;
           Jet *b1_jet = jetList[matchJetIndex[0]];
           Jet *q1_jet = jetList[matchJetIndex[1]];
           Jet *q2_jet = jetList[matchJetIndex[2]];
@@ -932,7 +963,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
           plots->fmatchTopJetM->Fill(( tP4.M()));
       }
       if(matchJetIndex[3]>-1 && matchJetIndex[4]>-1 && matchJetIndex[5]>-1){
-          NmatchTop++;
+          NmatchTop_truth++;
           Jet *b2_jet = jetList[matchJetIndex[3]];
           Jet *q3_jet = jetList[matchJetIndex[4]];
           Jet *q4_jet = jetList[matchJetIndex[5]];
@@ -943,10 +974,10 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
           plots->fmatchWJetM->Fill(( wP4.M()));
           plots->fmatchTopJetM->Fill(( tP4.M()));
       }
-      plots->fmatchTopJetNum->Fill(NmatchTop);
+      plots->fmatchTopJetNum->Fill(NmatchTop_truth);
     
       double truthDRbb = partonList[0]->P4().DeltaR(partonList[3]->P4());
-      if(NmatchTop==2){
+      if(NmatchTop_truth==2){
           plots->fmatchTop2_minDRjj->Fill(minDRjj);
           plots->fmatchTop2_minDRqq->Fill(minDRqq);
           plots->fmatchTop2_truthDRbb->Fill(truthDRbb);
@@ -954,7 +985,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
           plots->fmatchTop2_Jet5PT->Fill(jetList[4]->PT);
           plots->fmatchTop2_Jet6PT->Fill(jetList[5]->PT);
       }
-      else if(NmatchTop==1){
+      else if(NmatchTop_truth==1){
           plots->fmatchTop1_minDRjj->Fill(minDRjj);
           plots->fmatchTop1_minDRqq->Fill(minDRqq);
           plots->fmatchTop1_truthDRbb->Fill(truthDRbb);
@@ -971,7 +1002,7 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
           plots->fmatchTop0_Jet6PT->Fill(jetList[5]->PT);
       }
       if(isDEBUG){
-          cout <<"DEBUG NmatchTop " << NmatchTop <<endl;
+          cout <<"DEBUG NmatchTop_truth " << NmatchTop_truth <<endl;
           cout <<"Parton"<<endl;
           for(int i=0;i<partonList.size();i++){
               cout << i<<" "<< partonList[i]->P4().Pt() <<" "<< partonList[i]->P4().Eta()<< " "<< partonList[i]->P4().Phi() <<" "<< matchJetIndex[i] <<endl;
@@ -982,14 +1013,68 @@ void AnalyseEvents(ExRootTreeReader *treeReader, TestPlots *plots, const char *o
           }
       }
      
-      vector<int>chi2barcode;
+      vector<int>chi2barcode, chi2_jet_index;
       TLorentzVector chi2_t1P4, chi2_t2P4, chi2_W1P4, chi2_W2P4;
-      double chi2_val = Chi2Minimizer(jetList,chi2barcode, chi2_t1P4, chi2_t2P4, chi2_W1P4, chi2_W2P4);
+      double chi2_val = Chi2Minimizer(jetList,chi2barcode, chi2_jet_index, chi2_t1P4, chi2_W1P4, chi2_t2P4, chi2_W2P4);
       
-      cout << chi2_val <<" "<< chi2_t1P4.M()<<endl;
+      cout <<"Debug "<< entry <<" chi2 "<< chi2_val <<" top1: "<< chi2_t1P4.M() <<" " << chi2_W1P4.M()<<" top2: "<< chi2_t2P4.M()<< " "<< chi2_W2P4.M()<<endl;
+      cout <<" chi2barcode: ";
       for(int i=0;i< chi2barcode.size(); i++)
-        cout <<" "<< chi2barcode[i]<<endl;
+        cout <<" "<< chi2barcode[i];
+      cout<< endl;
 
+      cout <<" truebarcode: ";
+      for(int i=0;i< matchBarcode.size(); i++)
+        cout <<" "<< matchBarcode[i];
+      cout<< endl;
+      
+      NmatchTop_chi2match=0;
+ 
+       if((matchBarcode[chi2_jet_index[0]] == 17 &&
+           matchBarcode[chi2_jet_index[1]] == 20 &&
+           matchBarcode[chi2_jet_index[2]] == 20) ||
+          (matchBarcode[chi2_jet_index[0]] == 34 &&
+           matchBarcode[chi2_jet_index[1]] == 40 &&
+           matchBarcode[chi2_jet_index[2]] == 40)){
+           top1_mass_chi2match= chi2_t1P4.M();
+           w1_mass_chi2match= chi2_W1P4.M();
+           NmatchTop_chi2match++;
+       }
+       if((matchBarcode[chi2_jet_index[0]] == 17 &&
+           matchBarcode[chi2_jet_index[1]] == 20 &&
+           matchBarcode[chi2_jet_index[2]] == 20) ||
+          (matchBarcode[chi2_jet_index[0]] == 34 &&
+           matchBarcode[chi2_jet_index[1]] == 40 &&
+           matchBarcode[chi2_jet_index[2]] == 40)){
+           if(NmatchTop_chi2match ==0 ){
+             top1_mass_chi2match= chi2_t2P4.M();
+             w1_mass_chi2match= chi2_W2P4.M();
+           }else{
+             top2_mass_chi2match= chi2_t2P4.M();
+             w2_mass_chi2match= chi2_W2P4.M();
+           }
+           NmatchTop_chi2match++;
+       }
+/*
+       if((chi2barcode[matchJetIndex[0]] == 34 &&
+           chi2barcode[matchJetIndex[1]] == 40 &&
+           chi2barcode[matchJetIndex[2]] == 40 ) ||
+          (chi2barcode[matchJetIndex[0]] == 17 &&
+           chi2barcode[matchJetIndex[1]] == 20 &&
+           chi2barcode[matchJetIndex[2]] == 20 ))i {
+            NmatchTop_chi2++;
+       }
+       if((chi2barcode[matchJetIndex[3]] == 34 &&
+           chi2barcode[matchJetIndex[4]] == 40 &&
+           chi2barcode[matchJetIndex[5]] == 40 ) ||
+          (chi2barcode[matchJetIndex[3]] == 17 &&
+           chi2barcode[matchJetIndex[4]] == 20 &&
+           chi2barcode[matchJetIndex[5]] == 20 )) NmatchTop_chi2++;
+
+*/
+      cout <<"Debug chi2Match "<< NmatchTop_chi2match <<" truthMatch "<< NmatchTop_truth<<endl;
+
+     
       //Fill output tree
       for(int i=0;i<partonList.size();i++){
           GenParticle* particle = (GenParticle*) partonList[i];
